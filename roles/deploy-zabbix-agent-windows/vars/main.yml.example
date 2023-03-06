@@ -1,0 +1,7 @@
+zabbix_server_fqdn: 'zabbix.domain.local'
+zabbix_win_agent_install_path: 'c:\zabbix'
+zabbix_version_current: 5.0.2
+
+zabbix_win_package: zabbix_agent-{{ zabbix_version_current }}-windows-amd64.zip
+zabbix_win_download_url: https://www.zabbix.com/downloads
+zabbix_win_download_link: "{{ zabbix_win_download_url }}/{{ zabbix_version_current }}/{{ zabbix_win_package }}"

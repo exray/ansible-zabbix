@@ -1,0 +1,7 @@
+---
+
+- name: Deploy zabbix proxy
+  hosts: zabbix-proxy-prod
+  roles:
+    - deploy-zabbix-proxy-centos8
+    - { role: deploy-zabbix-agent-centos8, zabbix_server_fqdn: '127.0.0.1', zabbix_agent_name: 'agentname' }

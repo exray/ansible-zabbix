@@ -1,0 +1,2 @@
+roles/deploy-zabbix-agent-windows/vars/main.yml
+roles/deploy-zabbix-proxy-centos8/vars/main.yml

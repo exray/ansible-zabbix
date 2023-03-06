@@ -1,0 +1,15 @@
+---
+
+- hosts: docker_zabbix
+  vars:
+    GIT_REPO: https://github.com/exray/zabbix.git
+    GIT_BRANCH: main
+    USER: remote_username
+    PROJECT_NAME: zabbix
+    GIT_SSH_PUBLIC_KEY: ~/.ssh/id_rsa.pub
+    GIT_SSH_KEY: ~/.ssh/id_rsa
+    DOCKER_CONTAINER_VERSION: 6.2.6-alpine
+    ZABBIX_SERVER_HOST: zabbix.domain.name
+  gather_facts: no
+  roles:
+    - deploy-zabbix-proxy-docker

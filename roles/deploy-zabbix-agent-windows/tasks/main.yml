@@ -1,0 +1,180 @@
+- name: Define a 'zabbix_win_agent_exe_path' variable
+  set_fact:
+    zabbix_win_agent_exe_path: '{{ zabbix_win_agent_install_path }}\zabbix_agentd.exe'
+
+- name: Check zabbix agent presence
+  win_stat:
+    path: "{{ zabbix_win_agent_exe_path }}"
+  register: zabbix_win_agent_info
+
+- name: Get zabbix agent version if exists
+  win_file_version:
+    path: "{{ zabbix_win_agent_exe_path }}"
+  register: zabbix_win_agent_exe_info
+  when:
+    - zabbix_win_agent_info.stat.exists
+
+# Переделать на zabbix_agent_update_need | default(False) ?
+- name: Define a zabbix 'update' variable to False
+  set_fact:
+    zabbix_agent_update_need: False
+
+- name: Check new zabbix agent version
+  set_fact:
+    zabbix_agent_update_need: True
+  when:
+    - zabbix_win_agent_info.stat.exists
+    - zabbix_win_agent_exe_info.win_file_version.product_version is version(zabbix_version_current, '<')
+
+- name: Create zabbix agent folder with subfolders
+  win_file:
+    state: directory
+    path: '{{ zabbix_win_agent_install_path }}\{{ item }}'
+  loop:
+      - bin
+      - conf
+      - temp
+  # when:
+  #   - not zabbix_win_agent_info.stat.exists
+
+- name: Generate zabbix_agentd.conf
+  win_template:
+    src: zabbix_agentd.conf.j2
+    dest: '{{ zabbix_win_agent_install_path }}\zabbix_agentd.conf'
+    newline_sequence: '\r\n'
+  when:
+    - not zabbix_win_agent_info.stat.exists
+
+- name: Generate userparameter.conf
+  win_template:
+    src: userparameter.conf.j2
+    dest: '{{ zabbix_win_agent_install_path }}\conf\userparameter.conf'
+    newline_sequence: '\r\n'
+  when:
+    - not zabbix_win_agent_info.stat.exists
+
+- name: Download zabbix agent binaries
+  win_get_url:
+    url: "{{ zabbix_win_download_link }}"
+    dest: '{{ zabbix_win_agent_install_path }}\temp\zabbix_agent.zip'
+  when:
+    - not zabbix_win_agent_info.stat.exists or zabbix_agent_update_need
+
+- name: Unzip zabbix agent binaries
+  win_unzip:
+    src: '{{ zabbix_win_agent_install_path }}\temp\zabbix_agent.zip'
+    dest: '{{ zabbix_win_agent_install_path }}\temp\'
+  when:
+    - not zabbix_win_agent_info.stat.exists or zabbix_agent_update_need
+
+- name: Find all .exe and save it into temporary variable
+  win_find:
+    paths: '{{ zabbix_win_agent_install_path }}\temp\bin'
+    patterns: [ '*.exe' ]
+  register: zabbix_binaries_list
+  when:
+    - not zabbix_win_agent_info.stat.exists or zabbix_agent_update_need
+
+- name: Update | Stop zabbix agent service
+  win_command: zabbix_agentd.exe --stop --config "{{ zabbix_win_agent_install_path }}\zabbix_agentd.conf"
+  args:
+    chdir: '{{ zabbix_win_agent_install_path }}'
+  when:
+    - zabbix_agent_update_need
+
+- name: Update | Uninstall zabbix agent service
+  win_command: zabbix_agentd.exe --uninstall --config "{{ zabbix_win_agent_install_path }}\zabbix_agentd.conf"
+  args:
+    chdir: '{{ zabbix_win_agent_install_path }}'
+  when:
+    - zabbix_agent_update_need
+
+- name: Update | Remove old zabbix agent binaries
+  win_file:
+    path: '{{ zabbix_win_agent_install_path }}\{{ item }}'
+    state: absent
+  loop:
+    - zabbix_agentd.exe
+    - zabbix_get.exe
+    - zabbix_sender.exe
+  when:
+    - zabbix_agent_update_need
+
+- name: Copy zabbix binaries from temp folder to main folder
+  win_copy:
+    src: "{{ item.path }}"
+    dest: '{{ zabbix_win_agent_install_path }}\'
+    remote_src: yes
+  with_items: "{{ zabbix_binaries_list.files }}"
+  when:
+    - not zabbix_win_agent_info.stat.exists or zabbix_agent_update_need
+
+- name: Copy zbxlld-win.exe
+  win_copy:
+    src: roles/deploy-zabbix-agent-windows/files/zbxlld-win.exe
+    dest: '{{ zabbix_win_agent_install_path }}\bin\'
+  when:
+    - not zabbix_win_agent_info.stat.exists
+
+- name: Install zabbix service
+  win_command: zabbix_agentd.exe --install --config "{{ zabbix_win_agent_install_path }}\zabbix_agentd.conf"
+  args:
+    chdir: '{{ zabbix_win_agent_install_path }}'
+  when:
+    - not zabbix_win_agent_info.stat.exists or zabbix_agent_update_need
+
+- name: Start zabbix service
+  win_command: zabbix_agentd.exe --start --config "{{ zabbix_win_agent_install_path }}\zabbix_agentd.conf"
+  args:
+    chdir: '{{ zabbix_win_agent_install_path }}'
+  when:
+    - not zabbix_win_agent_info.stat.exists or zabbix_agent_update_need
+
+- name: Clean temporary zabbix folder if exists
+  win_file:
+    path: '{{ zabbix_win_agent_install_path }}\temp\'
+    state: absent
+
+- name: Windows | Check for NetworkingDsc Powershell module
+  win_psmodule:
+    name: NetworkingDsc
+    state: present
+  tags: rdp
+
+- name: Firewall | Allow RDP through Firewall
+  win_dsc:
+    resource_name: Firewall
+    Name: "RDP (TCP-In)"
+    Ensure: present
+    Enabled: True
+    Profile: Domain, Private, Public
+    Direction: "Inbound"
+    Localport: "3389"
+    Protocol: "TCP"
+    Description: "Opens the listener port for RDP"
+  tags: rdp
+
+- name: Firewall | Allow zabbix agent
+  win_dsc:
+    resource_name: Firewall
+    Name: "Zabbix agent 10050 (TCP-In)"
+    Ensure: present
+    Enabled: True
+    Profile: Domain, Private, Public
+    Direction: "Inbound"
+    Localport: "10050"
+    Protocol: "TCP"
+    Description: "Opens the listener port for zabbix agent"
+  tags: firewall
+
+- name: Firewall | Allow ping from everywhere
+  win_dsc:
+    resource_name: Firewall
+    Name: "ICMP in"
+    Ensure: present
+    Enabled: True
+    Profile: Domain, Private, Public
+    Direction: "Inbound"
+    Protocol: "ICMPv4"
+    Description: "Allow ping from everywhere"
+  tags: firewall

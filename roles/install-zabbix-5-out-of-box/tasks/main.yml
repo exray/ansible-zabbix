@@ -1,0 +1,26 @@
+- name: Install 'ipmitool' package
+  dnf:
+    name: ipmitool
+    state: latest
+
+- name: Copy impi.sh script, set +x mode
+  copy:
+    src: roles/install-zabbix-5-out-of-box/files/ipmi.sh
+    dest: /usr/lib/zabbix/externalscripts/ipmi.sh
+    mode: u=rwx,g=rx,o=rx
+
+- name: Install 'whois' package
+  dnf:
+    name: whois
+    state: latest
+
+#Вместо copy используй https://docs.ansible.com/ansible/latest/modules/synchronize_module.html ???
+- name: Copy whois scripts, set +x mode
+  copy:
+    src: roles/install-zabbix-5-out-of-box/files/{{item}}
+    dest: /etc/zabbix/zabbix_agentd.d/
+    owner: zabbix
+    group: zabbix
+    mode: u=rwx,g=rx,o=rx
+  with_items:
+    ['domain_discovery.sh','domain_expire.sh','domain_list.txt','domainexpire.conf']

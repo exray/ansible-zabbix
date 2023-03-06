@@ -1,0 +1,55 @@
+- name: Do {{ zabbix_version.split('.')[0] + '.' + zabbix_version.split('.')[1] }} from {{ zabbix_version }}
+  set_fact:
+    zabbix_version_major: "{{ zabbix_version.split('.')[0] + '.' + zabbix_version.split('.')[1] }}"
+
+- name: Add zabbix repo
+  yum_repository:
+    name: zabbix
+    description: Zabbix Official Repository - $basesearch
+    baseurl: http://repo.zabbix.com/zabbix/{{ zabbix_version_major }}/rhel/{{ ansible_distribution_major_version }}/$basearch/
+    gpgcheck: 0
+    gpgkey: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ZABBIX
+    state: present
+  when:
+    - ansible_os_family == "RedHat"
+
+ 
+- name: Add zabbix-non-supported repo
+  yum_repository:  
+    name: zabbix-non-supported
+    description: Zabbix Official Repository non-supported - $basearch
+    baseurl: http://repo.zabbix.com/non-supported/rhel/{{ ansible_distribution_major_version }}/$basearch/
+    gpgcheck: 0
+    gpgkey: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ZABBIX
+    state: present
+  when:
+    - ansible_os_family == "RedHat"
+
+- name: Install zabbix agent
+  dnf:
+    name:
+      - zabbix-agent
+    state: latest
+  when:
+    - ansible_os_family == "RedHat"
+
+- name: "Configure zabbix-agent (generate config file)"
+  template:
+    src: zabbix_agentd.conf.j2
+    dest: /etc/zabbix/zabbix_agentd.conf
+    owner: zabbix
+    group: zabbix
+    mode: 0644
+  notify: Restart zabbix-agent
+
+# - name: Restart zabbix proxy
+#   service:
+#     name: zabbix-proxy
+#     state: restarted
+#     enabled: yes
+
+# - name: Restart zabbix agent
+#   service:
+#     name: zabbix-agent
+#     state: restarted
+#     enabled: yes        

@@ -1,0 +1,8 @@
+---
+
+- name: Install zabbix 5.0
+  hosts: zabbix
+ 
+  roles:
+    - install-zabbix-5-box
+    - install-zabbix-5-out-of-box

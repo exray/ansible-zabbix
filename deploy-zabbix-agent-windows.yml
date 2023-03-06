@@ -1,0 +1,7 @@
+---
+
+- name: Deploy zabbix agent
+  hosts: all
+ 
+  roles:
+    - deploy-zabbix-agent-windows

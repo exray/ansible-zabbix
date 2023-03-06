@@ -1,0 +1,3 @@
+zabbix_server_fqdn: "zabbix.domain.local"
+zabbix_agent_install_path: "c:\\zabbix" #double backslash!
+zabbix_agent_url: "https://www.zabbix.com/downloads/5.0.1/zabbix_agent-5.0.1-windows-amd64.zip" 

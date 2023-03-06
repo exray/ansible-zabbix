@@ -1,0 +1,8 @@
+zabbix_server_fqdn: 'zabbix.domain.local'
+zabbix_win_agent_install_path: 'c:\zabbix'
+zabbix_agent_service_name: 'Zabbix Agent 2'
+zabbix_version_current: 6.2.6
+
+zabbix_agent_package: zabbix_agent2-{{ zabbix_agent_version_current }}-windows-amd64-static.zip
+zabbix_agent_download_url: https://cdn.zabbix.com/zabbix/binaries/stable
+zabbix_agent_download_link: "{{ zabbix_agent_download_url }}/{{ zabbix_agent_version_current[:3] }}/{{ zabbix_agent_version_current }}/{{ zabbix_agent_package }}"

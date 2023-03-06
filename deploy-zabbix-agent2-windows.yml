@@ -1,0 +1,7 @@
+---
+
+- hosts: zabbix_agent
+  gather_facts: false
+  
+  roles:
+    - deploy-zabbix-agent2-windows

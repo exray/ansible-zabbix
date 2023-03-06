@@ -1,0 +1,125 @@
+# !!!ЭТО ВАРИАНТ С АККУРАТНОЙ ПЕРЕУСТАНОВКОЙ, ОН НЕ ДОПИСАН!!!
+
+# Так как wildcard не работает для win_service, делаем другим способом
+# - name: Get zabbix service presence
+#   win_service:
+#     name: "Zabbix Agent*"
+#   register: result
+
+# Ищем все службы имена которых начинаются на zabbix*
+- name: Getting zabbix service presence
+  win_shell: (Get-Service -Name Zabbix*).Name
+  register: zabbix_service_presence
+
+# Сохраняем в переменную zabbix_service_name найденное выше имя службы.
+# Если не нашли таковой, то ничего не сохраняем и пропускаем этот и последующие шаги.
+- name: Settting facts about zabbix service
+  set_fact:
+    zabbix_service_name: "{{ zabbix_service_presence.stdout_lines[0] if zabbix_service_presence.stdout_lines else ''}}"
+    
+- name: Print zabbix service name
+  debug:
+    var: zabbix_service_name
+  when: zabbix_service_name | length > 0
+
+# Смотрим информацию о нужной нам службе, если нашли её
+- name: Getting zabbix service info
+  win_service:
+    name: "{{ zabbix_service_name }}"
+  register: zabbix_service_info
+  when: zabbix_service_name | length > 0
+
+# Сохраняем несколько дополнительных переменных, если служба найдена
+- name: Parse zabbix_root variable and zabbix_bin variable from zabbix_service_name variable
+  vars:
+    separator: '\' # иначе split('\\') валится с ошибкой
+  set_fact:
+    # zabbix_root: "{{ zabbix_service_info.path | regex_replace('(.*?\\\\.*?)\\\\.*', '\\1') }}"
+    zabbix_root: "{{ zabbix_service_info.path.split('zabbix_agent')[0] }}"
+    zabbix_bin: "{{ zabbix_service_info.path.split(' ')[0].split(separator)[-1] }}"
+    # zabbix_bin_fullpath: "{{ zabbix_service_info.path.split(' ')[0] }}"
+  when: zabbix_service_name | length > 0
+
+- name: Print zabbix_root
+  debug:
+    var: zabbix_root
+  when: zabbix_service_name | length > 0
+
+- name: Print zabbix_bin
+  debug:
+    var: zabbix_bin
+  when: zabbix_service_name | length > 0
+
+# Смотрим версию текущего установленного агента, если он установлен
+- name: Getting zabbix agent version
+  win_file_version:
+    path: "{{ zabbix_bin_fullpath }}"
+  register: zabbix_agent_version
+  ignore_errors: true
+  when: zabbix_service_name | length > 0
+
+- name: Print zabbix agent version
+  debug:
+    var: zabbix_agent_version.win_file_version.product_version
+  when: zabbix_service_name | length > 0
+
+- name: Print zabbix_agent_version_current
+  debug:
+    var: zabbix_agent_version_current
+  when: zabbix_service_name | length > 0
+
+- name: Print zabbix_agent_package from vars file
+  debug:
+    var: zabbix_agent_download_link
+
+- name: Creating zabbix agent folder with subfolders
+  win_file:
+    state: directory
+    path: '{{ zabbix_agent_install_path }}\{{ item }}'
+  loop:
+      - bin
+      - conf
+      - temp
+
+# Если агент устарел, качаем новый
+- name: Downloading zabbix agent binaries
+  win_get_url:
+    url: '{{ zabbix_agent_download_link }}'
+    dest: '{{ zabbix_agent_install_path }}\temp\{{ zabbix_agent_package }}.zip'
+  when:
+    - (zabbix_agent_version.win_file_version.product_version is version(zabbix_agent_version_current, '<') or not zabbix_agent_version) or not zabbix_service_info.stat.exists
+
+
+- name: Unzipping zabbix agent binaries
+  win_unzip:
+    src: '{{ zabbix_agent_install_path }}\temp\{{ zabbix_agent_package }}.zip'
+    dest: '{{ zabbix_agent_install_path }}\temp\'
+
+- name: Stopping zabbix agent
+  win_service:
+    name: "{{ zabbix_service_name }}"
+    state: stopped
+
+- name: Removing zabbix agent
+  win_service:
+    name: "{{ zabbix_service_name }}"
+    state: absent
+
+- name: Finding all .exe and saving it into temporary variable
+  win_find:
+    paths: '{{ zabbix_agent_install_path }}\temp\bin'
+    patterns: [ '*.exe' ]
+  register: zabbix_binaries_list
+
+- name: Copying zabbix binaries from temp folder to root folder
+  win_copy:
+    src: '{{ item.path }}'
+    dest: '{{ zabbix_agent_install_path }}\'
+    remote_src: yes
+  with_items: '{{ zabbix_binaries_list.files }}'
+
+# Создаём новую службу
+# - name: Create a new service
+#   win_service:
+#     name: service name
+#     path: C:\temp\test.exe

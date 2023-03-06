@@ -1,0 +1,18 @@
+---
+
+- hosts: docker_zabbix
+  gather_facts: no
+  become: true
+  
+  tasks:
+
+  - name: Generate ssh keys
+    openssh_keypair:
+      path: /home/cits/.ssh/id_rsa
+      owner: cits
+      group: cits
+  
+  - name: Fix owner of the generated pub key
+    file:
+      path: /home/cits/.ssh/id_rsa.pub
+      owner: cits

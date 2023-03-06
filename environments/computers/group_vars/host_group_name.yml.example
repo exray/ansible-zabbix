@@ -1,0 +1,7 @@
+ansible_user: localadmin_name
+ansible_password: localadmin_password
+
+ansible_winrm_transport: credssp
+ansible_port: 5986
+ansible_connection: winrm
+ansible_winrm_server_cert_validation: ignore

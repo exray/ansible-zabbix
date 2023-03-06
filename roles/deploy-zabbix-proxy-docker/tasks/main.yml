@@ -1,0 +1,136 @@
+---
+
+- name: Apt update
+  become: true
+  apt:
+    update_cache: yes
+    force_apt_get: yes
+    dpkg_options: "force-confold"
+
+- name: Apt upgrade
+  become: true
+  apt:
+    upgrade: dist
+    force_apt_get: yes
+
+- name: Install git
+  become: true
+  apt:
+    name: git
+    state: present
+    update_cache: yes
+
+- name: Install docker
+  become: true
+  apt:
+    name: docker-ce
+    state: present
+    update_cache: yes
+
+- name: Install docker-compose
+  become: true
+  apt:
+    name: docker-compose
+    state: present
+    update_cache: yes
+
+- name: Add docker group
+  become: true
+  group:
+    name: docker
+    state: present
+
+- name: Add {{ USER }} to docker group
+  become: true
+  user:
+    name: "{{ USER }}"
+    group: docker
+    append: yes
+
+- name: Copy SSH public key
+  copy:
+    src: "{{ GIT_SSH_PUBLIC_KEY }}"
+    dest: /home/{{ USER }}/.ssh/github.pub
+    mode: 0644
+
+- name: Copy SSH private key
+  copy:
+    src: "{{ GIT_SSH_KEY }}"
+    dest: /home/{{ USER }}/.ssh/github
+    mode: 0600
+
+- name: Clone a repository
+  git:
+    repo: git@github.com:exray/zabbix.git
+    dest: "/home/{{ USER }}/{{ PROJECT_NAME }}"
+    accept_hostkey: yes
+    clone: yes
+    key_file: ~/.ssh/github
+
+- name: Stop and disable current zabbix-proxy
+  become: true
+  service:
+    name: zabbix-proxy
+    state: stopped
+    enabled: false
+
+# Modify zabbix agent configuration. Set docker as server instead of localhost
+- name: Modify `Server` in zabbix agent config
+  become: true
+  lineinfile: 
+    path: /etc/zabbix/zabbix_agentd.conf
+    regexp: '^(.*)Server=(.*)$' 
+    line: 'Server=172.20.0.2'
+    backrefs: yes
+
+- name: Modify `ServerActive` in zabbix agent config
+  become: true
+  lineinfile: 
+    path: /etc/zabbix/zabbix_agentd.conf
+    regexp: '^(.*)ServerActive=(.*)$' 
+    line: 'ServerActive=172.20.0.2'
+    backrefs: yes
+  register: config_changed
+
+- name: Restart zabbix agent after changing config
+  become: true
+  service:
+    name: zabbix-agent
+    state: restarted
+  when: config_changed.changed
+
+- name: Generate zabbix proxy config file
+  template:
+    src: zabbix-proxy.j2
+    dest: "/home/{{ USER }}/{{ PROJECT_NAME }}/zabbix-proxy/zabbix-proxy.env"
+  tags: config
+
+- name: Create docker network
+  docker_network:
+    name: zabbix-net
+    state: present
+    ipam_config:
+      - subnet: 172.20.0.0/24
+
+- name: Docker container up
+  docker_container:
+    name: zabbix-proxy-sqlite3
+    image: "zabbix/zabbix-proxy-sqlite3:{{ DOCKER_CONTAINER_VERSION }}"
+    restart: yes
+    state: started
+    networks:
+      - name: zabbix-net
+    ports:
+      - "10051:10051"
+    purge_networks: yes
+    env_file: "/home/{{ USER }}/{{ PROJECT_NAME }}/zabbix-proxy/zabbix-proxy.env"
+
+- name: Remove SSH public key
+  file:
+    path: /home/{{ USER }}/.ssh/github.pub
+    state: absent
+
+- name: Remove SSH private key
+  file:
+    path: /home/{{ USER }}/.ssh/github
+    state: absent

@@ -1,0 +1,149 @@
+# Так как wildcard не работает для win_service, делаем другим способом
+# - name: Get zabbix service presence
+#   win_service:
+#     name: "Zabbix Agent*"
+#   register: result
+
+# Ищем все службы имена которых начинаются на zabbix*
+- name: Getting zabbix service presence
+  win_shell: (Get-Service -Name Zabbix*).Name
+  register: zabbix_service_presence
+
+# Сохраняем в переменную zabbix_service_name найденное выше имя службы
+# Если не нашли таковой, то ничего не сохраняем и пропускаем этот шаг
+- name: Setting facts about zabbix service
+  set_fact:
+    zabbix_service_name: '{{ zabbix_service_presence.stdout_lines[0] if zabbix_service_presence.stdout_lines else ""}}'
+    
+- name: Print zabbix service name
+  debug:
+    var: zabbix_service_name
+  when: zabbix_service_name | length > 0
+
+# Останавливает службу
+- name: Stopping zabbix agent
+  win_service:
+    name: '{{ zabbix_service_name }}'
+    state: stopped
+  when: zabbix_service_name | length > 0
+
+# Удаляем службу
+- name: Removing zabbix agent
+  win_service:
+    name: '{{ zabbix_service_name }}'
+    state: absent
+  when: zabbix_service_name | length > 0
+
+# Удаляем всё из папки с агентом
+- name: Deleting all files and subfolders in '{{ zabbix_win_agent_install_path }}'
+  win_file:
+    state: absent
+    path: '{{ zabbix_agent_install_path }}'
+
+# Создаём новую структуру папок
+- name: Creating brand new zabbix agent folder with subfolders
+  win_file:
+    state: directory
+    path: '{{ zabbix_agent_install_path }}\{{ item }}'
+  loop:
+      - bin
+      - conf
+      - scripts
+      - temp
+
+# Качаем агента
+- name: Downloading zabbix agent binaries into '{{ zabbix_agent_install_path }}\temp\'
+  win_get_url:
+    url: '{{ zabbix_agent_download_link }}'
+    dest: '{{ zabbix_agent_install_path }}\temp\{{ zabbix_agent_package }}.zip'
+
+# Распаковываем файлы агента во временную директорию
+- name: Unzipping zabbix agent binaries into '{{ zabbix_agent_install_path }}\temp\'
+  win_unzip:
+    src: '{{ zabbix_agent_install_path }}\temp\{{ zabbix_agent_package }}.zip'
+    dest: '{{ zabbix_agent_install_path }}\temp\'
+
+# Ищем все бинарники и сохраняем их пути в переменную
+- name: Finding all .exe into '{{ zabbix_agent_install_path }}\temp\' and saving it into temporary variable
+  win_find:
+    paths: '{{ zabbix_agent_install_path }}\temp\bin'
+    patterns: [ '*.exe' ]
+  register: zabbix_binaries_list
+
+# Копируем все бинарники в коневую папку
+- name: Copying zabbix binaries from temp folder to root folder
+  win_copy:
+    src: '{{ item.path }}'
+    dest: '{{ zabbix_agent_install_path }}\'
+    remote_src: yes
+  with_items: '{{ zabbix_binaries_list.files }}'
+
+# Генерируем основной конфиг и копируем его в корневую папку агента
+- name: Generating zabbix_agentd.conf
+  win_template:
+    src: zabbix_agentd.conf.j2
+    dest: '{{ zabbix_agent_install_path }}\zabbix_agentd.conf'
+    newline_sequence: '\r\n'
+
+# Генерируем userparameter конфиг и копируем его в корневую папку агента
+- name: Generate userparameter.conf
+  win_template:
+    src: userparameter.conf.j2
+    dest: '{{ zabbix_agent_install_path }}\conf\userparameter.conf'
+    newline_sequence: '\r\n'
+
+# Иногда в реестре остаются хвосты от агента, чистим их
+- name: Cleaning registry keys
+  win_regedit:
+    path: HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\Zabbix Agent 2
+    state: absent
+
+
+# Создаём службу агента
+- name: Installing zabbix agent
+  win_command: '{{ zabbix_agent_install_path }}\zabbix_agent2.exe --config {{ zabbix_agent_install_path }}\zabbix_agentd.conf --install --foreground'
+  args:
+    chdir: '{{ zabbix_agent_install_path }}'
+
+# Запускаем службу агента
+- name: Starting zabbix agent
+  win_command: '{{ zabbix_agent_install_path }}\zabbix_agent2.exe --config {{ zabbix_agent_install_path }}\zabbix_agentd.conf --start --foreground'
+  args:
+    chdir: '{{ zabbix_agent_install_path }}'
+
+# Чистим временную папку
+- name: Cleaning temporary zabbix folder if exists
+  win_file:
+    path: '{{ zabbix_agent_install_path }}\temp\'
+    state: absent
+
+# Устанавиваем Networking модуль для powershell
+- name: Windows | Check for NetworkingDsc Powershell module
+  win_psmodule:
+    name: NetworkingDsc
+    state: present
+
+# Разрешаем доступ к порту 10050 отовсюду
+- name: Firewall | Allow zabbix agent
+  win_dsc:
+    resource_name: Firewall
+    Name: "Zabbix agent 10050 (TCP-In)"
+    Ensure: present
+    Enabled: True
+    Profile: Domain, Private, Public
+    Direction: "Inbound"
+    Localport: "10050"
+    Protocol: "TCP"
+    Description: "Opens the listener port for zabbix agent"
+
+# Разрешаем пинг отовсюду
+- name: Firewall | Allow ping from everywhere
+  win_dsc:
+    resource_name: Firewall
+    Name: "ICMP in"
+    Ensure: present
+    Enabled: True
+    Profile: Domain, Private, Public
+    Direction: "Inbound"
+    Protocol: "ICMPv4"
+    Description: "Allow ping from everywhere"

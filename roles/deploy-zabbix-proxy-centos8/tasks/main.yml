@@ -1,0 +1,91 @@
+- name: Do {{ zabbix_version.split('.')[0] + '.' + zabbix_version.split('.')[1] }} from {{ zabbix_version }}
+  set_fact:
+    zabbix_version_major: "{{ zabbix_version.split('.')[0] + '.' + zabbix_version.split('.')[1] }}"
+
+- name: Add zabbix repo
+  yum_repository:
+    name: zabbix
+    description: Zabbix Official Repository - $basesearch
+    baseurl: http://repo.zabbix.com/zabbix/{{ zabbix_version_major }}/rhel/{{ ansible_distribution_major_version }}/$basearch/
+    gpgcheck: 0
+    gpgkey: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ZABBIX
+    state: present
+  when:
+    - ansible_os_family == "RedHat"
+
+- name: Add zabbix-non-supported repo
+  yum_repository:  
+    name: zabbix-non-supported
+    description: Zabbix Official Repository non-supported - $basearch
+    baseurl: http://repo.zabbix.com/non-supported/rhel/{{ ansible_distribution_major_version }}/$basearch/
+    gpgcheck: 0
+    gpgkey: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ZABBIX
+    state: present
+  when:
+    - ansible_os_family == "RedHat"
+
+- name: Install zabbix packages
+  dnf:
+    name:
+      - zabbix-proxy-sqlite3
+      #- zabbix-agent
+      - sqlite
+    state: latest
+  when:
+    - ansible_os_family == "RedHat"
+
+- name: Set sqlite3 database path
+  set_fact:
+    zabbix_proxy_db_path: /var/lib/zabbix/zabbix_proxy.db
+
+- name: Create sqlite3 database folder
+  file:
+    name: "{{ zabbix_proxy_db_path | dirname }}"
+    owner: zabbix
+    group: zabbix
+    state: directory
+
+- name: Importing sqlite3 schema file
+  become: yes
+  become_user: zabbix
+  shell: |
+    set -o pipefail
+    zcat /usr/share/doc/zabbix-proxy-sqlite3/schema.sql.gz | sqlite3 {{ zabbix_proxy_db_path }}
+  args:
+    creates: "{{ zabbix_proxy_db_path }}"
+    executable: /bin/bash
+
+- name: "Configure zabbix-proxy (generate config file)"
+  template:
+    src: zabbix_proxy.conf.j2
+    dest: /etc/zabbix/zabbix_proxy.conf
+    owner: zabbix
+    group: zabbix
+    mode: 0644
+  notify: Restart zabbix-proxy
+
+- name: Disable SELinux
+  selinux:
+    state: disabled
+  when:
+    - ansible_os_family == "RedHat"
+
+- name: Disable firewalld
+  service:
+    name: firewalld
+    state: stopped
+    enabled: no
+  when:
+    - ansible_os_family == "RedHat"
+
+# - name: Restart zabbix proxy
+#   service:
+#     name: zabbix-proxy
+#     state: restarted
+#     enabled: yes
+
+# - name: Restart zabbix agent
+#   service:
+#     name: zabbix-agent
+#     state: restarted
+#     enabled: yes        

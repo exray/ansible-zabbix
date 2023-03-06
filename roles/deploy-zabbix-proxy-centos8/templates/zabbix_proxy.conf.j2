@@ -1,0 +1,9 @@
+DBName={{ zabbix_proxy_db_path }}
+Server={{ zabbix_server_fqdn }}
+Hostname={{ zabbix_proxy_name }}
+LogFile=/var/log/zabbix/zabbix_proxy.log
+LogFileSize=128
+PidFile=/var/run/zabbix/zabbix_proxy.pid
+ExternalScripts=/usr/lib/zabbix/externalscripts
+StartIPMIPollers=3
+StartDiscoverers=3

@@ -1,0 +1,176 @@
+- name: Add EPEL repo
+  yum_repository:
+    name: epel
+    description: EPEL yum repo
+    baseurl: https://dl.fedoraproject.org/pub/epel/8/Everything/x86_64/
+    gpgkey: https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-8
+
+- name: Add zabbix repo
+  yum_repository:
+    name: zabbix
+    description: Zabbix Official Repository - x86_64
+    baseurl: https://repo.zabbix.com/zabbix/5.0/rhel/8/x86_64/
+    gpgkey: https://repo.zabbix.com/zabbix-official-repo.key
+
+- name: Install MySQL server
+  dnf:
+    name:
+      - mariadb
+      - mariadb-server
+    state: latest
+
+- name: Install mysql-python Dependencies
+  yum:
+    name:
+      - mysql-devel
+      - python3-devel
+      - gcc
+    state: present
+
+- name: Install pre-req utils
+  dnf:
+    name:
+      - fping
+      - rsync
+    state: latest
+
+- name: Install zabbix binaries
+  dnf:
+    name:
+      - zabbix-server-mysql
+      - zabbix-web-mysql
+      - zabbix-apache-conf
+      - zabbix-agent
+      - zabbix-get
+    state: latest
+
+- name: Start Mariadb Service
+  service:
+    name: mariadb
+    state: started
+    enabled: true
+
+- name: Install pip  # Might need to install "epel-release" on Redhat OS Family -- installation of EPEL is up to you
+  package:
+    name: python3-pip
+    state: latest
+
+- name: Install the configparser library
+  pip:
+    name: configparser
+
+- name: Install the mysql libraries
+  pip:
+    name:
+      - mysql-connector
+      - mysqlclient
+      - pymysql
+
+- name: MySQL configuration
+  mysql_secure_installation:
+    login_password: ''
+    new_password: '{{zabbix_mariadb_password}}'
+    user: root
+    login_host: localhost
+    hosts: ['localhost', '127.0.0.1', '::1']
+    change_root_password: true
+    remove_anonymous_user: true
+    disallow_root_login_remotely: true
+    remove_test_db: true
+  register: mysql_secure
+
+# - debug:
+#     var: mysql_secure
+
+- name: Create a new database 'zabbix'
+  mysql_db:
+    name: zabbix
+    encoding: utf8
+    collation: utf8_bin
+    login_password: '{{zabbix_mariadb_password}}'
+    state: present
+
+#Не идемпотентно! Исправь!
+- name: Import initial schema and data for database 'zabbix'
+  mysql_db:
+    name: zabbix
+    state: import
+    login_password: '{{zabbix_mariadb_password}}'
+    target: /usr/share/doc/zabbix-server-mysql/create.sql.gz
+
+- name: Create a new user 'zabbix' with all database privileges
+  mysql_user:
+    name: zabbix
+    login_password: '{{zabbix_mariadb_password}}'
+    password: '{{zabbix_db_password}}'
+    priv: '*.*:ALL'
+    state: present
+
+- name: Copy zabbix.conf for PHP
+  copy:
+    src: roles/install-zabbix-5-box/files/zabbix-php.conf
+    dest: /etc/php-fpm.d/zabbix.conf
+    owner: root
+    group: root
+    mode: u=rw,g=r,o=r
+
+- name: Generate zabbix_server.conf
+  delegate_to: 127.0.0.1
+  template:
+    src: zabbix_server.conf.j2
+    dest: roles/install-zabbix-5-box/files/tmp/zabbix_server.conf
+    newline_sequence: '\r\n'
+  tags: conf
+
+- name: Copy zabbix_server.conf
+  copy:
+    src: roles/install-zabbix-5-box/files/tmp/zabbix_server.conf
+    dest: /etc/zabbix/zabbix_server.conf
+    owner: zabbix
+    group: zabbix
+    mode: u=rw,g=r
+
+- name: Copy zabbix_agentd.conf
+  copy:
+    src: roles/install-zabbix-5-box/files/zabbix_agentd.conf
+    dest: /etc/zabbix/zabbix_agentd.conf
+    mode: u=rw,g=r,o=r
+
+- name: Remove temporary zabbix_server.conf
+  file:
+    path: roles/install-zabbix-5-box/files/tmp/zabbix_server.conf
+    state: absent
+
+- name: Disable SELinux
+  selinux:
+    state: disabled
+
+- name: Disable firewalld
+  service:
+    name: firewalld
+    state: stopped
+    enabled: no
+
+- name: Restart zabbix server
+  service:
+    name: zabbix-server
+    state: restarted
+    enabled: yes
+
+- name: Restart zabbix agent
+  service:
+    name: zabbix-agent
+    state: restarted
+    enabled: yes        
+
+- name: Restart httpd
+  service:
+    name: httpd
+    state: restarted
+    enabled: yes
+
+- name: Restart php-fpm
+  service:
+    name: php-fpm
+    state: restarted
+    enabled: yes
