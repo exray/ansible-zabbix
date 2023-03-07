@@ -61,7 +61,7 @@
 
 - name: Clone a repository
   git:
-    repo: git@github.com:exray/zabbix.git
+    repo: git@github.com:exray/ansible-zabbix.git
     dest: "/home/{{ USER }}/{{ PROJECT_NAME }}"
     accept_hostkey: yes
     clone: yes

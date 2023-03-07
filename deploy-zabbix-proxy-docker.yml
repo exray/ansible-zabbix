@@ -2,7 +2,7 @@
 
 - hosts: docker_zabbix
   vars:
-    GIT_REPO: https://github.com/exray/zabbix.git
+    GIT_REPO: https://github.com/exray/ansible-zabbix.git
     GIT_BRANCH: main
     USER: remote_username
     PROJECT_NAME: zabbix
